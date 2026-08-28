@@ -1,6 +1,6 @@
 import type { Viagem } from "@/types";
 import { totalGasto, totalReceita, saldo, gastosPorCategoria, fmtMoney, fmtDataCurta, fmtData, parteDoViajante, limparNomeViagem } from "./helpers";
-import { staticMapUrlPerDay, googleMapsRouteUrl, getDayColors } from "./mapStatic";
+import { staticMapUrl, staticMapUrlPerDay, googleMapsUrl, googleMapsRouteUrl, getDayColors } from "./mapStatic";
 
 function download(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -449,6 +449,125 @@ export function imprimirRelatorio(v: Viagem) {
   }
 }
 
+// ========== RELATÓRIO PONTOS VISITADOS POR DIA ==========
+export function gerarRelatorioPontosVisitados(v: Viagem): string {
+  const linhas: string[] = [];
+  const allCoords = v.dias.flatMap((d) => d.atividades.filter((a) => a.coord).map((a) => a.coord!));
+  linhas.push("PONTOS VISITADOS POR DIA");
+  linhas.push("=".repeat(40));
+  linhas.push(`Viagem: ${limparNomeViagem(v.destino)}`);
+  linhas.push(`Período: ${fmtDataCurta(v.inicio)} — ${fmtDataCurta(v.fim)}`);
+  linhas.push(`Total de locais com GPS: ${allCoords.length}`);
+  linhas.push(`Rota: ${allCoords.length >= 2 ? googleMapsRouteUrl(allCoords) : "-"}`);
+  linhas.push("");
+  v.dias.forEach((d, idx) => {
+    const pts = d.atividades.filter((a) => a.coord);
+    linhas.push(`DIA ${idx + 1} — ${fmtDataCurta(d.data)} — ${fmtData(d.data)} (${d.atividades.length} atividades, ${pts.length} com GPS)`);
+    linhas.push("-".repeat(50));
+    if (d.atividades.length === 0) { linhas.push("  (sem atividades)"); linhas.push(""); return; }
+    d.atividades.forEach((a, i) => {
+      linhas.push(`  ${i + 1}. ${a.hora} — ${a.titulo}`);
+      linhas.push(`     Local: ${a.local}${a.endereco ? " — " + a.endereco : ""}`);
+      if (a.coord) linhas.push(`     GPS: ${a.coord.lat.toFixed(6)}, ${a.coord.lng.toFixed(6)} — ${googleMapsUrl(a.coord)}`);
+      else linhas.push(`     GPS: —`);
+      if (a.notas) linhas.push(`     Notas: ${a.notas}`);
+      if (a.relato) linhas.push(`     Relato: ${a.relato}`);
+      if (a.custo > 0) linhas.push(`     Custo: ${fmtMoney(a.custo)}`);
+    });
+    linhas.push("");
+  });
+  return linhas.join("\n");
+}
+
+export function exportarRelatorioPontosVisitados(v: Viagem) {
+  download(`pontos_visitados_${sanitize(v.destino)}.txt`, gerarRelatorioPontosVisitados(v), "text/plain;charset=utf-8");
+}
+
+export function gerarHTMLPontosVisitados(v: Viagem): string {
+  const allCoords = v.dias.flatMap((d) => d.atividades.filter((a) => a.coord).map((a) => a.coord!));
+  const mapGeral = allCoords.length >= 2 ? staticMapUrlPerDay(v, 760, 400) : "";
+  const routeLink = allCoords.length >= 2 ? googleMapsRouteUrl(allCoords) : "";
+  const dayColors = getDayColors();
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Pontos Visitados — ${limparNomeViagem(v.destino)}</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 820px; margin: 0 auto; padding: 32px 20px; color: #1e293b; line-height: 1.6; }
+  h1 { color: #0d9488; border-bottom: 3px solid #0d9488; padding-bottom: 8px; font-size: 26px; text-align: center; }
+  h2 { color: #fff; background: #0d9488; padding: 8px 14px; border-radius: 8px; font-size: 15px; margin-top: 28px; }
+  h3 { color: #334155; font-size: 14px; margin: 12px 0 6px; }
+  .meta { text-align: center; color: #64748b; font-size: 13px; margin-bottom: 20px; }
+  .map-box { text-align: center; margin: 18px 0; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #f8fafc; padding: 10px; }
+  .map-box img { max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 10px; font-size: 12px; color: #475569; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 16px; font-size: 13px; }
+  th { background: #f1f5f9; text-align: left; padding: 7px 10px; font-size: 12px; border-bottom: 2px solid #e2e8f0; }
+  td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+  .num { width: 28px; text-align: center; font-weight: 700; color: #0d9488; }
+  .gps { font-size: 11px; color: #64748b; }
+  .gps a { color: #0d9488; text-decoration: none; font-weight: 600; }
+  .footer { margin-top: 36px; text-align: center; color: #94a3b8; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+  @media print { body { padding: 16px; } }
+</style>
+</head>
+<body>
+<h1>🗺 Pontos Visitados por Dia</h1>
+<div class="meta">
+  <strong>${limparNomeViagem(v.destino)}</strong> — ${fmtDataCurta(v.inicio)} a ${fmtDataCurta(v.fim)}<br>
+  ${allCoords.length} locais com GPS em ${v.dias.filter(d=>d.atividades.some(a=>a.coord)).length} dias • Gerado em ${new Date().toLocaleDateString("pt-BR")}
+</div>
+
+${mapGeral ? `<div class="map-box">
+  <img src="${mapGeral}" alt="Mapa geral da rota" />
+  <div class="legend">${v.dias.map((d,i)=>{ const n=d.atividades.filter(a=>a.coord).length; if(!n) return ""; const hex="#"+dayColors[i%dayColors.length].replace("0x",""); return `<span style="display:flex;align-items:center;gap:5px"><span style="width:11px;height:11px;border-radius:50%;background:${hex};display:inline-block"></span>Dia ${i+1} — ${fmtDataCurta(d.data)} (${n})</span>`;}).join("")}</div>
+  <p style="font-size:11px;color:#94a3b8;margin:8px 0 0">Total: ${allCoords.length} pontos • Rota completa destacada por dia</p>
+  ${routeLink ? `<p style="margin:10px 0 0"><a href="${routeLink}" target="_blank" style="color:#0d9488;font-weight:700;text-decoration:none;font-size:13px">📍 Abrir rota completa no Google Maps</a></p>` : ""}
+</div>` : `<p style="text-align:center;color:#e11d48;background:#fef2f2;padding:12px;border-radius:8px">Nenhum ponto com GPS cadastrado. Adicione coordenadas nas atividades (Roteiro → 📍 Minha Localização) para ver o mapa.</p>`}
+
+${v.dias.map((d, dayIdx) => {
+  const pts = d.atividades;
+  const hex = "#" + dayColors[dayIdx % dayColors.length].replace("0x","");
+  const dayCoords = d.atividades.filter(a=>a.coord).map(a=>a.coord!);
+  const dayMap = dayCoords.length >= 2 ? staticMapUrl(dayCoords, 760, 260) : dayCoords.length === 1 ? staticMapUrl(dayCoords, 760, 260) : "";
+  return `
+<h2 style="background:${hex}"><span style="background:#fff;color:${hex};border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-right:8px">${dayIdx+1}</span> Dia ${dayIdx+1} — ${fmtDataCurta(d.data)} — ${fmtData(d.data)} (${pts.length} atividades)</h2>
+${dayMap ? `<div class="map-box" style="padding:6px"><img src="${dayMap}" alt="Mapa dia ${dayIdx+1}" style="max-height:260px" /><p style="font-size:11px;color:#64748b;margin:6px 0 0">${dayCoords.length} ponto(s) neste dia</p></div>` : ""}
+${pts.length === 0 ? `<p style="color:#64748b;font-size:13px;background:#f8fafc;padding:10px;border-radius:8px">Sem atividades neste dia.</p>` : `
+<table>
+<thead><tr><th class="num">#</th><th>Hora</th><th>Ponto / Local</th><th>GPS</th><th style="text-align:right">Custo</th></tr></thead>
+<tbody>
+${pts.map((a,i)=>{
+  const gUrl = a.coord ? googleMapsUrl(a.coord) : "";
+  return `<tr>
+    <td class="num">${i+1}</td>
+    <td style="white-space:nowrap">${a.hora || "-"}</td>
+    <td><strong>${a.titulo}</strong><br><span style="color:#64748b;font-size:12px">${a.local}${a.endereco ? " • "+a.endereco : ""}</span>${a.relato ? `<br><em style="font-size:12px;color:#475569">"${a.relato}"</em>` : ""}</td>
+    <td class="gps">${a.coord ? `${a.coord.lat.toFixed(5)}, ${a.coord.lng.toFixed(5)}<br><a href="${gUrl}" target="_blank">Abrir no Maps ↗</a>` : "—"}</td>
+    <td style="text-align:right;white-space:nowrap">${a.custo>0?fmtMoney(a.custo):"-"}</td>
+  </tr>`;
+}).join("")}
+</tbody>
+</table>`}
+${d.relato ? `<p style="background:#f0fdfa;border-left:3px solid #0d9488;padding:8px 12px;font-size:13px;color:#134e4a;margin:8px 0"><strong>Relato do dia:</strong> ${d.relato}</p>` : ""}`;
+}).join("")}
+
+<div class="footer">Meu Roteiro de Viagem — Pontos Visitados por Dia • Rota com mapa real (OpenStreetMap) + links para Google Maps</div>
+</body>
+</html>`;
+}
+
+export function exportarHTMLPontosVisitados(v: Viagem) {
+  download(`pontos_visitados_${sanitize(v.destino)}.html`, gerarHTMLPontosVisitados(v), "text/html;charset=utf-8");
+}
+
+export function imprimirPontosVisitados(v: Viagem) {
+  const html = gerarHTMLPontosVisitados(v);
+  const win = window.open("", "_blank");
+  if (win) { win.document.write(html); win.document.close(); win.print(); }
+}
+
 // ========== LISTA DE RELATÓRIOS ==========
 export type RelatorioTipo = {
   id: string;
@@ -466,6 +585,9 @@ export function getRelatorios(): RelatorioTipo[] {
     { id: "atividades", nome: "Relatório de Atividades", descricao: "Roteiro completo com custos", icone: "🗓️", exportar: exportarRelatorioAtividades },
     { id: "viajantes", nome: "Relatório por Viajante", descricao: "Gastos individuais de cada viajante", icone: "👥", exportar: exportarRelatorioViajantes },
     { id: "checklist", nome: "Relatório de Checklist", descricao: "Status de preparação da viagem", icone: "✅", exportar: exportarRelatorioChecklist },
+    { id: "pontos-txt", nome: "Pontos Visitados (TXT)", descricao: "Lista de pontos por dia com GPS", icone: "📍", exportar: exportarRelatorioPontosVisitados },
+    { id: "pontos-html", nome: "Pontos Visitados (HTML)", descricao: "Mapa real + pontos por dia para impressão", icone: "🗺️", exportar: exportarHTMLPontosVisitados },
+    { id: "pontos-print", nome: "Imprimir Pontos", descricao: "Abrir mapa de pontos para imprimir", icone: "🖨️", exportar: imprimirPontosVisitados },
     { id: "profissional", nome: "Relatório Profissional", descricao: "Documento HTML formatado para impressão", icone: "📄", exportar: exportarRelatorioProfissional },
     { id: "imprimir", nome: "Imprimir Relatório", descricao: "Abrir relatório profissional para impressão", icone: "🖨️", exportar: imprimirRelatorio },
     { id: "json", nome: "Exportar JSON", descricao: "Backup completo dos dados da viagem", icone: "💾", exportar: exportarJSON },

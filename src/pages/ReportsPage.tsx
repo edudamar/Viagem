@@ -8,6 +8,7 @@ import {
   gerarPDFViajantes,
   gerarPDFChecklist,
   gerarPDFProfissional,
+  gerarPDFPontosVisitados,
 } from "@/utils/pdf";
 import {
   exportarRelatorioGeral,
@@ -16,8 +17,17 @@ import {
   exportarRelatorioAtividades,
   exportarRelatorioViajantes,
   exportarRelatorioChecklist,
+  exportarRelatorioPontosVisitados,
+  exportarHTMLPontosVisitados,
   exportarJSON,
 } from "@/utils/reports";
+
+function handlePdfAction(action: (v: any) => any, viagem: any) {
+  try {
+    const ret = action(viagem);
+    if (ret && typeof ret.then === "function") ret.catch((e: any) => { console.error(e); alert("Erro ao gerar PDF: " + (e?.message ?? e)); });
+  } catch (e: any) { alert("Erro ao gerar PDF: " + (e?.message ?? e)); }
+}
 
 const pdfReports = [
   { id: "pdf-geral", nome: "Relatório Geral", descricao: "Resumo completo da viagem em PDF", icone: "📋", action: gerarPDFGeral },
@@ -25,7 +35,8 @@ const pdfReports = [
   { id: "pdf-atividades", nome: "Relatório de Atividades", descricao: "Roteiro completo com custos", icone: "🗓️", action: gerarPDFAtividades },
   { id: "pdf-viajantes", nome: "Relatório por Viajante", descricao: "Gastos individuais de cada viajante", icone: "👥", action: gerarPDFViajantes },
   { id: "pdf-checklist", nome: "Relatório de Checklist", descricao: "Status de preparação da viagem", icone: "✅", action: gerarPDFChecklist },
-  { id: "pdf-profissional", nome: "Relatório Profissional", descricao: "Documento completo e formatado", icone: "📄", action: gerarPDFProfissional },
+  { id: "pdf-pontos", nome: "Pontos Visitados por Dia", descricao: "Mapa real + pontos por dia com GPS e links", icone: "🗺️", action: gerarPDFPontosVisitados },
+  { id: "pdf-profissional", nome: "Relatório Profissional", descricao: "Documento completo e formatado (com mapa real)", icone: "📄", action: gerarPDFProfissional },
 ];
 
 const otherReports = [
@@ -35,6 +46,8 @@ const otherReports = [
   { id: "txt-atividades", nome: "Atividades (TXT)", descricao: "Roteiro em texto", icone: "📝", action: exportarRelatorioAtividades },
   { id: "txt-viajantes", nome: "Viajantes (TXT)", descricao: "Gastos por viajante", icone: "📝", action: exportarRelatorioViajantes },
   { id: "txt-checklist", nome: "Checklist (TXT)", descricao: "Status em texto", icone: "📝", action: exportarRelatorioChecklist },
+  { id: "txt-pontos", nome: "Pontos Visitados (TXT)", descricao: "Lista por dia com GPS", icone: "📍", action: exportarRelatorioPontosVisitados },
+  { id: "html-pontos", nome: "Pontos Visitados (HTML)", descricao: "Mapa real + pontos por dia", icone: "🗺️", action: exportarHTMLPontosVisitados },
   { id: "json", nome: "Backup (JSON)", descricao: "Dados completos", icone: "💾", action: exportarJSON },
 ];
 
@@ -80,7 +93,7 @@ export default function ReportsPage() {
             {pdfReports.map((r) => (
               <button
                 key={r.id}
-                onClick={() => r.action(viagem)}
+                onClick={() => handlePdfAction(r.action, viagem)}
                 className="bg-surface group flex items-start gap-3 rounded-xl border border-border p-4 text-left transition-all hover:border-primary/30 hover:shadow-sm"
               >
                 <span className="text-2xl">{r.icone}</span>

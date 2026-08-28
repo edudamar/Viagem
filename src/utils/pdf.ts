@@ -2,7 +2,7 @@
 import autoTable from "jspdf-autotable";
 import type { Viagem, Coord } from "@/types";
 import { totalGasto, totalReceita, saldo, gastosPorCategoria, fmtMoney, fmtDataCurta, parteDoViajante, limparNomeViagem } from "./helpers";
-import { staticMapUrlPerDay, googleMapsRouteUrl } from "./mapStatic";
+import { staticMapUrl, staticMapUrlPerDay, googleMapsUrl, googleMapsRouteUrl, fetchMapDataUrl } from "./mapStatic";
 
 const DAY_COLORS_RGB: [number, number, number][] = [
   [13, 148, 136],
@@ -618,7 +618,7 @@ export function gerarPDFChecklist(v: Viagem) {
 }
 
 // ========== RELATORIO PROFISSIONAL ==========
-export function gerarPDFProfissional(v: Viagem) {
+export async function gerarPDFProfissional(v: Viagem) {
   const doc = mkPDF(); hdr(doc, "Relatorio Profissional", v); ftr(doc);
   let y = 42;
   y = summaryCards(doc, y, v);
@@ -670,72 +670,39 @@ export function gerarPDFProfissional(v: Viagem) {
     }
   });
 
-  // Mapa da Rota
+  // Mapa da Rota — tenta mapa real (OpenStreetMap), fallback para esquemático
   const allCoords: Coord[] = v.dias.flatMap((d) => d.atividades.filter((a) => a.coord).map((a) => a.coord!));
-  if (allCoords.length >= 2) {
-    y = cp(doc, y, 80); y = sec(doc, y, "Mapa da Rota Percorrida");
-    const lats = allCoords.map((c) => c.lat);
-    const lngs = allCoords.map((c) => c.lng);
-    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
-    const padLat = (maxLat - minLat) * 0.15 || 0.01;
-    const padLng = (maxLng - minLng) * 0.15 || 0.01;
-    const mapX = 15, mapY = y, mapW = 180, mapH = 80;
-
-    doc.setFillColor(...C.light);
-    doc.roundedRect(mapX, mapY, mapW, mapH, 3, 3, "F");
-    doc.setDrawColor(...C.muted);
-    doc.roundedRect(mapX, mapY, mapW, mapH, 3, 3, "S");
-
-    const toMapX = (lng: number) => mapX + ((lng - (minLng - padLng)) / ((maxLng - minLng) + 2 * padLng)) * mapW;
-    const toMapY = (lat: number) => mapY + mapH - ((lat - (minLat - padLat)) / ((maxLat - minLat) + 2 * padLat)) * mapH;
-
-    let markerIdx = 1;
+  if (allCoords.length >= 1) {
+    y = cp(doc, y, 85); y = sec(doc, y, "Mapa da Rota Percorrida — mapa real");
+    const mapX = 15, mapY = y, mapW = 180, mapH = 78;
+    const mapUrl = staticMapUrlPerDay(v, 760, 400);
+    const ok = allCoords.length >= 2 ? await tryAddMapImage(doc, mapUrl, mapX, mapY, mapW, mapH) : false;
+    if (!ok) {
+      drawSchematicMap(doc, v, mapX, mapY, mapW, mapH, allCoords);
+      doc.setDrawColor(...C.muted); doc.roundedRect(mapX, mapY, mapW, mapH, 2, 2, "S");
+    } else {
+      doc.setDrawColor(...C.muted); doc.roundedRect(mapX, mapY, mapW, mapH, 2, 2, "S");
+    }
+    y = mapY + mapH + 4;
+    let legendY = y;
+    let lx = mapX;
     v.dias.forEach((dia, dayIdx) => {
-      const dayCoords = dia.atividades.filter((a) => a.coord).map((a) => a.coord!);
-      if (dayCoords.length === 0) return;
+      const n = dia.atividades.filter((a) => a.coord).length; if (!n) return;
       const color = DAY_COLORS_RGB[dayIdx % DAY_COLORS_RGB.length];
-
-      if (dayCoords.length > 1) {
-        doc.setDrawColor(...color);
-        doc.setLineWidth(0.8);
-        for (let i = 0; i < dayCoords.length - 1; i++) {
-          doc.line(toMapX(dayCoords[i].lng), toMapY(dayCoords[i].lat), toMapX(dayCoords[i + 1].lng), toMapY(dayCoords[i + 1].lat));
-        }
-      }
-
-      dayCoords.forEach((c) => {
-        const cx = toMapX(c.lng);
-        const cy = toMapY(c.lat);
-        doc.setFillColor(...color);
-        doc.circle(cx, cy, 2.2, "F");
-        doc.setFillColor(...C.white);
-        doc.setFontSize(5);
-        doc.setFont("helvetica", "bold");
-        doc.text(String(markerIdx), cx, cy + 0.5, { align: "center" });
-        markerIdx++;
-      });
+      doc.setFillColor(...color); doc.circle(lx + 2, legendY, 1.8, "F");
+      doc.setTextColor(...C.dark); doc.setFontSize(7); doc.setFont("helvetica","normal");
+      doc.text(`Dia ${dayIdx+1} (${n})`, lx + 5, legendY + 0.8);
+      lx += 26; if (lx > 165) { lx = mapX; legendY += 5; }
     });
-
-    let legendY = mapY + mapH + 5;
-    v.dias.forEach((dia, dayIdx) => {
-      const dayCoords = dia.atividades.filter((a) => a.coord).length;
-      if (dayCoords === 0) return;
-      const color = DAY_COLORS_RGB[dayIdx % DAY_COLORS_RGB.length];
-      doc.setFillColor(...color);
-      doc.circle(mapX + 3, legendY, 2, "F");
-      doc.setTextColor(...C.dark);
-      doc.setFontSize(7);
-      doc.setFont("helvetica", "normal");
-      doc.text(`Dia ${dayIdx + 1} — ${fmtDataCurta(dia.data)} (${dayCoords} locais)`, mapX + 8, legendY + 0.8);
-      legendY += 4;
-    });
-
-    doc.setTextColor(...C.muted);
-    doc.setFontSize(7);
-    doc.text(allCoords.length + " locais mapeados", mapX, legendY + 2);
-
-    y = legendY + 8;
+    y = legendY + 6;
+    doc.setTextColor(...C.muted); doc.setFontSize(7);
+    doc.text(allCoords.length + " locais mapeados — OpenStreetMap", mapX, y);
+    if (allCoords.length >= 2) {
+      y += 4;
+      doc.setTextColor(...C.primary); doc.setFontSize(7);
+      doc.textWithLink("Abrir rota completa no Google Maps", mapX, y, { url: googleMapsRouteUrl(allCoords) });
+    }
+    y += 8;
   }
 
   // Lancamentos
@@ -770,4 +737,161 @@ export function gerarPDFProfissional(v: Viagem) {
   doc.save("relatorio_profissional_" + sn(v.destino) + ".pdf");
 }
 
-export function imprimirPDF(v: Viagem) { gerarPDFProfissional(v); }
+async function tryAddMapImage(doc: jsPDF, url: string, x: number, y: number, w: number, h: number): Promise<boolean> {
+  const dataUrl = await fetchMapDataUrl(url);
+  if (!dataUrl) return false;
+  try {
+    const fmt = dataUrl.includes("image/png") ? "PNG" : "JPEG";
+    doc.addImage(dataUrl, fmt, x, y, w, h);
+    return true;
+  } catch { return false; }
+}
+
+function drawSchematicMap(doc: jsPDF, v: Viagem, mapX: number, mapY: number, mapW: number, mapH: number, allCoords: Coord[]) {
+  const lats = allCoords.map((c) => c.lat);
+  const lngs = allCoords.map((c) => c.lng);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+  const padLat = (maxLat - minLat) * 0.15 || 0.01;
+  const padLng = (maxLng - minLng) * 0.15 || 0.01;
+  doc.setFillColor(...C.light);
+  doc.roundedRect(mapX, mapY, mapW, mapH, 3, 3, "F");
+  doc.setDrawColor(...C.muted);
+  doc.roundedRect(mapX, mapY, mapW, mapH, 3, 3, "S");
+  const toMapX = (lng: number) => mapX + ((lng - (minLng - padLng)) / ((maxLng - minLng) + 2 * padLng)) * mapW;
+  const toMapY = (lat: number) => mapY + mapH - ((lat - (minLat - padLat)) / ((maxLat - minLat) + 2 * padLat)) * mapH;
+  let markerIdx = 1;
+  v.dias.forEach((dia, dayIdx) => {
+    const dayCoords = dia.atividades.filter((a) => a.coord).map((a) => a.coord!);
+    if (dayCoords.length === 0) return;
+    const color = DAY_COLORS_RGB[dayIdx % DAY_COLORS_RGB.length];
+    if (dayCoords.length > 1) {
+      doc.setDrawColor(...color); doc.setLineWidth(0.8);
+      for (let i = 0; i < dayCoords.length - 1; i++) doc.line(toMapX(dayCoords[i].lng), toMapY(dayCoords[i].lat), toMapX(dayCoords[i + 1].lng), toMapY(dayCoords[i + 1].lat));
+    }
+    dayCoords.forEach((c) => {
+      const cx = toMapX(c.lng); const cy = toMapY(c.lat);
+      doc.setFillColor(...color); doc.circle(cx, cy, 2.2, "F");
+      doc.setFillColor(...C.white); doc.setFontSize(5); doc.setFont("helvetica", "bold");
+      doc.text(String(markerIdx), cx, cy + 0.5, { align: "center" }); markerIdx++;
+    });
+  });
+}
+
+// ========== RELATORIO PONTOS VISITADOS POR DIA (com mapa real) ==========
+export async function gerarPDFPontosVisitados(v: Viagem) {
+  const doc = mkPDF(); hdr(doc, "Pontos Visitados por Dia", v); ftr(doc);
+  let y = 42;
+  const allCoords: Coord[] = v.dias.flatMap((d) => d.atividades.filter((a) => a.coord).map((a) => a.coord!));
+
+  // Resumo
+  y = sec(doc, y, "Resumo");
+  autoTable(doc, { ...tbl(y), theme: "plain", bodyStyles: { fontSize: 9, cellPadding: 3 },
+    columnStyles: { 0: { fontStyle: "bold", cellWidth: 55 }, 1: { halign: "left" } },
+    body: [
+      ["Total com GPS", String(allCoords.length)],
+      ["Dias com GPS", String(v.dias.filter(d=>d.atividades.some(a=>a.coord)).length) + " / " + v.dias.length],
+      ["Rota Google Maps", allCoords.length >= 2 ? googleMapsRouteUrl(allCoords) : "-"],
+    ]});
+  y = (doc as any).lastAutoTable.finalY + 6;
+
+  // Mapa geral real
+  if (allCoords.length >= 1) {
+    y = cp(doc, y, 85); y = sec(doc, y, "Mapa Geral — Rota Completa (mapa real)");
+    const mapX = 15, mapY = y, mapW = 180, mapH = 72;
+    const mapUrl = staticMapUrlPerDay(v, 760, 400);
+    const ok = await tryAddMapImage(doc, mapUrl, mapX, mapY, mapW, mapH);
+    if (!ok) drawSchematicMap(doc, v, mapX, mapY, mapW, mapH, allCoords);
+    else { doc.setDrawColor(...C.muted); doc.roundedRect(mapX, mapY, mapW, mapH, 2, 2, "S"); }
+    y = mapY + mapH + 4;
+    // legenda
+    let lx = 15;
+    v.dias.forEach((dia, dayIdx) => {
+      const n = dia.atividades.filter(a=>a.coord).length; if (!n) return;
+      const color = DAY_COLORS_RGB[dayIdx % DAY_COLORS_RGB.length];
+      doc.setFillColor(...color); doc.circle(lx + 2, y, 1.8, "F");
+      doc.setTextColor(...C.dark); doc.setFontSize(7); doc.setFont("helvetica","normal");
+      doc.text(`Dia ${dayIdx+1} (${n})`, lx + 5, y + 1);
+      lx += 28;
+      if (lx > 170) { lx = 15; y += 5; }
+    });
+    y += 6;
+    doc.setTextColor(...C.muted); doc.setFontSize(7);
+    doc.text(allCoords.length + " locais mapeados — imagem: OpenStreetMap • clique no link acima para Google Maps", 15, y);
+    y += 8;
+    if (allCoords.length >= 2) {
+      doc.setTextColor(...C.primary); doc.setFontSize(8);
+      doc.textWithLink("Abrir rota completa no Google Maps", 15, y, { url: googleMapsRouteUrl(allCoords) });
+      y += 8;
+    }
+  } else {
+    y = cp(doc, y, 12);
+    doc.setFillColor(254, 242, 242); doc.roundedRect(15, y, 180, 10, 2, 2, "F");
+    doc.setTextColor(...C.red); doc.setFontSize(9); doc.setFont("helvetica","bold");
+    doc.text("Nenhum ponto com GPS — adicione coordenadas em Roteiro > Minha Localizacao", 20, y + 6.5);
+    y += 16;
+  }
+
+  // Detalhe por dia
+  for (let dayIdx = 0; dayIdx < v.dias.length; dayIdx++) {
+    const d = v.dias[dayIdx];
+    y = cp(doc, y, 30); y = sec(doc, y, `Dia ${dayIdx + 1} — ${fmtDataCurta(d.data)} (${d.atividades.length} atividades)`);
+    const dayCoords = d.atividades.filter(a=>a.coord).map(a=>a.coord!);
+    if (dayCoords.length >= 1) {
+      const mapX = 15, mapY = y, mapW = 180, mapH = 42;
+      const need = mapH + 6;
+      y = cp(doc, y, need);
+      const dayUrl = staticMapUrl(dayCoords, 760, 260);
+      const ok = await tryAddMapImage(doc, dayUrl, mapX, mapY, mapW, mapH);
+      if (!ok) {
+        doc.setFillColor(...C.light); doc.roundedRect(mapX, mapY, mapW, mapH, 2, 2, "F");
+        doc.setTextColor(...C.muted); doc.setFontSize(8); doc.text(dayCoords.length + " ponto(s) neste dia", mapX + 4, mapY + 6);
+      } else { doc.setDrawColor(...C.muted); doc.roundedRect(mapX, mapY, mapW, mapH, 2, 2, "S"); }
+      y = mapY + mapH + 6;
+    }
+    if (d.atividades.length === 0) {
+      doc.setTextColor(...C.muted); doc.setFontSize(8); doc.text("Sem atividades neste dia.", 20, y); y += 6;
+    } else {
+      autoTable(doc, { ...tbl(y), head: [["#","Hora","Ponto / Local","GPS","Custo"]],
+        body: d.atividades.map((a,i)=> [
+          String(i+1), a.hora || "-", a.titulo + "\n" + a.local + (a.endereco ? " • " + a.endereco : ""),
+          a.coord ? a.coord.lat.toFixed(5) + ", " + a.coord.lng.toFixed(5) : "-",
+          a.custo>0? fmtMoney(a.custo): "-"
+        ]),
+        columnStyles: { 0:{cellWidth:10, halign:"center"}, 1:{cellWidth:18}, 3:{cellWidth:38, fontSize:7}, 4:{halign:"right", cellWidth:22} },
+        styles: { cellPadding: 2, fontSize: 8 },
+        didDrawCell: (data:any) => {
+          if (data.section === 'body' && data.column.index === 3) {
+            const a = d.atividades[data.row.index];
+            if (a?.coord) {
+              const url = googleMapsUrl(a.coord);
+              // link area will be added via textWithLink fallback: keep URL as text, user can copy
+            }
+          }
+        }
+      });
+      y = (doc as any).lastAutoTable.finalY + 4;
+      // links GPS abaixo da tabela para cada ponto com coord
+      for (let i=0;i<d.atividades.length;i++) {
+        const a=d.atividades[i]; if(!a.coord) continue;
+        const url = googleMapsUrl(a.coord);
+        if (y > doc.internal.pageSize.getHeight()-18) { doc.addPage(); ftr(doc); y=20; }
+        doc.setTextColor(...C.primary); doc.setFontSize(7);
+        doc.textWithLink(`${i+1}. ${a.titulo} — Abrir no Google Maps`, 20, y, { url });
+        y+=4;
+      }
+      y+=2;
+    }
+    if (d.relato) {
+      if (y > doc.internal.pageSize.getHeight()-24) { doc.addPage(); ftr(doc); y=20; }
+      doc.setFillColor(240, 253, 250); doc.roundedRect(15, y, 180, 10, 2, 2, "F");
+      doc.setDrawColor(...C.primary); doc.line(15, y, 15, y+10);
+      doc.setTextColor(19,78,74); doc.setFontSize(8); doc.setFont("helvetica","italic");
+      const lines = doc.splitTextToSize("Relato: " + d.relato, 170); doc.text(lines, 20, y+4); y+= Math.max(10, lines.length*4+6);
+    }
+  }
+
+  doc.save("pontos_visitados_" + sn(v.destino) + ".pdf");
+}
+
+export async function imprimirPDF(v: Viagem) { return gerarPDFProfissional(v); }
