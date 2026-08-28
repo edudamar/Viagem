@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #0d9488;
+  --color-primary-light: #14b8a6;
+  --color-primary-dark: #0f766e;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f8fafc;
+  --color-bg: #f1f5f9;
+  --color-bg-dark: #0f172a;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+body {
+  @apply font-sans bg-bg text-text antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, select, textarea {
+  @apply rounded-lg border border-border px-3 py-2 text-sm outline-none transition-colors;
+  @apply focus:border-primary focus:ring-1 focus:ring-primary/30;
+}
+
+button {
+  @apply cursor-pointer select-none;
+}
+
+.modal-overlay {
+  @apply fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.modal-content {
+  @apply w-full max-w-lg rounded-t-2xl bg-white p-6 shadow-xl sm:rounded-2xl;
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
