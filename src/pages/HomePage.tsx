@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { QRCodeModal } from "@/components/QRCodeModal";
 import { SyncStatus } from "@/components/SyncStatus";
 import { SpeechButton } from "@/components/SpeechButton";
+import { ImportViagemDropZone } from "@/components/ImportViagemDropZone";
 import { maskCurrency, parseCurrency, maskDate, parseDate, unmaskDate, blurCurrency, focusCurrency } from "@/utils/masks";
 import type { NovaViagemInput, Viagem } from "@/types";
 
@@ -196,28 +197,20 @@ export default function HomePage() {
       {/* Modal Importar */}
       <Modal open={showImportModal} onClose={() => { setShowImportModal(false); setPasteText(""); }} title="Importar Viagem">
         <div className="flex flex-col gap-4">
-          <p className="text-text-muted text-sm">Importe seus dados de viagem de duas formas:</p>
+          <ImportViagemDropZone onImported={() => setShowImportModal(false)} />
 
-          {/* Opção 1: Arquivo */}
-          <div className="border border-border rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <FileJson className="h-5 w-5 text-primary" />
-              <h4 className="font-medium text-sm">Arquivo</h4>
-            </div>
-            <p className="text-xs text-gray-500 mb-3">Selecione um arquivo .txt baixado do backup</p>
-            <button onClick={() => fileRef.current?.click()} className="w-full rounded-lg border border-border py-2.5 text-sm font-medium hover:bg-gray-50">
-              Selecionar Arquivo
-            </button>
-            <input ref={fileRef} type="file" accept=".json,.txt" className="hidden" onChange={handleImportFile} />
+          <div className="relative flex items-center justify-center">
+            <div className="border-t border-border flex-1" />
+            <span className="text-text-muted px-2 text-xs">ou cole o JSON</span>
+            <div className="border-t border-border flex-1" />
           </div>
 
-          {/* Opção 2: Colar texto */}
           <div className="border border-border rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <Clipboard className="h-5 w-5 text-primary" />
               <h4 className="font-medium text-sm">Colar JSON</h4>
             </div>
-            <p className="text-xs text-gray-500 mb-3">Copie o texto JSON do WhatsApp e cole aqui</p>
+            <p className="text-xs text-gray-500 mb-3">Copie o texto JSON e cole aqui</p>
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}

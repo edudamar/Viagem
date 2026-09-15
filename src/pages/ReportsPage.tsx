@@ -1,5 +1,9 @@
+import { useState } from "react";
+import { Upload } from "lucide-react";
 import { useTrip } from "@/context/TripContext";
 import { Header } from "@/components/Header";
+import { Modal } from "@/components/Modal";
+import { ImportViagemDropZone } from "@/components/ImportViagemDropZone";
 import { totalGasto, totalReceita, saldo, fmtMoney, limparNomeViagem } from "@/utils/helpers";
 import {
   gerarPDFGeral,
@@ -56,6 +60,7 @@ export default function ReportsPage() {
   const gastos = totalGasto(viagem);
   const receitas = totalReceita(viagem);
   const saldoVal = saldo(viagem);
+  const [showImport, setShowImport] = useState(false);
 
   return (
     <div>
@@ -138,7 +143,20 @@ export default function ReportsPage() {
             <li>• O <strong>JSON</strong> serve como backup completo dos dados</li>
           </ul>
         </div>
+
+        {/* Importar */}
+        <div className="bg-surface rounded-xl border border-border p-4">
+          <h3 className="text-sm font-semibold mb-2">Importar Viagem</h3>
+          <p className="text-text-muted text-xs mb-3">Importe um backup (.txt ou .json) de outro dispositivo</p>
+          <button onClick={() => setShowImport(true)} className="w-full rounded-lg border border-border py-2.5 text-sm font-medium hover:bg-gray-50 flex items-center justify-center gap-2">
+            <Upload className="h-4 w-4" /> Importar arquivo
+          </button>
+        </div>
       </div>
+
+      <Modal open={showImport} onClose={() => setShowImport(false)} title="Importar Viagem">
+        <ImportViagemDropZone onImported={() => setShowImport(false)} />
+      </Modal>
     </div>
   );
 }

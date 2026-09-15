@@ -266,9 +266,15 @@ export function TripProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!hydrated) return;
+    const data = { viagens, activeId };
     try {
-      localStorage.setItem(STORAGE_KEY_MULTI, JSON.stringify({ viagens, activeId }));
-    } catch {}
+      localStorage.setItem(STORAGE_KEY_MULTI, JSON.stringify(data));
+    } catch {
+      try {
+        const stripped = { ...data, viagens: viagens.map(({ capaUrl, ...v }) => ({ ...v, dias: v.dias.map((d) => ({ ...d, atividades: d.atividades.map((a) => ({ ...a, fotos: [] })) })) })) };
+        localStorage.setItem(STORAGE_KEY_MULTI, JSON.stringify(stripped));
+      } catch {}
+    }
   }, [viagens, activeId, hydrated]);
 
   const viagem = viagens.find((v) => v.id === activeId) ?? viagens[0];
